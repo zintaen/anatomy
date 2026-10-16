@@ -111,6 +111,113 @@ test("Antigravity session logs and spawned subagents are measured with cache rea
   }
 });
 
+test("Codex rollout logs and spawned subagent threads are measured with cached_input_tokens excluded", () => {
+  const root = mkdtempSync(join(tmpdir(), "codex-session-"));
+  const id = "5973b6c0-94b8-487b-a530-2aeb6098ae0e";
+  const sub = "88a1c2d0-1111-4222-9333-444455556666";
+  try {
+    const dayDir = join(root, "sessions", "2026", "10", "12");
+    mkdirSync(dayDir, { recursive: true });
+    const codexUser = (minute, text) => ({
+      timestamp: at(minute),
+      type: "response_item",
+      payload: {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text }],
+      },
+    });
+    const codexTokenCount = (minute, totalTokens, input, cached, output, cacheWrite = 0) => ({
+      timestamp: at(minute),
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: {
+          total_token_usage: {
+            input_tokens: totalTokens,
+            cached_input_tokens: cached,
+            cache_write_input_tokens: cacheWrite,
+            output_tokens: output,
+            reasoning_output_tokens: 0,
+            total_tokens: totalTokens,
+          },
+          last_token_usage: {
+            input_tokens: input,
+            cached_input_tokens: cached,
+            cache_write_input_tokens: cacheWrite,
+            output_tokens: output,
+            reasoning_output_tokens: 50,
+            total_tokens: input + output,
+          },
+        },
+      },
+    });
+    writeFileSync(
+      join(dayDir, `rollout-2026-10-12T10-00-00-${id}.jsonl`),
+      lines([
+        {
+          timestamp: at(0),
+          type: "session_meta",
+          payload: { id, session_id: id, timestamp: at(0), cwd: "/tmp", originator: "codex_cli_rs", cli_version: "0.42.0", source: "cli" },
+        },
+        codexUser(0, "fix typo"),
+        codexTokenCount(1, 100, 80, 30, 50),
+        codexUser(5, "/anatomy explain how a token bucket works, interactive"),
+        codexTokenCount(6, 2500, 5100, 4000, 400),
+        codexTokenCount(6, 2500, 5100, 4000, 400),
+        codexTokenCount(8, 3530, 2010, 1000, 20),
+        codexTokenCount(70, 4560, 2010, 1000, 20),
+        codexUser(80, "publish this figure to the community gallery"),
+        codexTokenCount(81, 15000, 6000, 1000, 5000),
+      ]),
+    );
+    writeFileSync(
+      join(dayDir, `rollout-2026-10-12T10-06-00-${sub}.jsonl`),
+      lines([
+        {
+          timestamp: at(6),
+          type: "session_meta",
+          payload: {
+            id: sub,
+            session_id: id,
+            parent_thread_id: id,
+            timestamp: at(6),
+            cwd: "/tmp",
+            originator: "codex_cli_rs",
+            cli_version: "0.42.0",
+            source: { subagent: { thread_spawn: { parent_thread_id: id, depth: 1 } } },
+          },
+        },
+        codexTokenCount(7, 1600, 3300, 2000, 300),
+        {
+          timestamp: at(7),
+          type: "token_usage_record",
+          payload: {
+            thread_id: sub,
+            turn_id: "t1",
+            session_id: id,
+            root_turn_id: "rt1",
+            response_id: "resp_1",
+            usage: { input_tokens: 3300, cached_input_tokens: 2000, cache_write_input_tokens: 0, output_tokens: 300, reasoning_output_tokens: 50, total_tokens: 3600 },
+            turn_token_usage: { input_tokens: 3300, cached_input_tokens: 2000, cache_write_input_tokens: 0, output_tokens: 300, reasoning_output_tokens: 50, total_tokens: 1600 },
+            thread_token_usage: { input_tokens: 3300, cached_input_tokens: 2000, cache_write_input_tokens: 0, output_tokens: 300, reasoning_output_tokens: 50, total_tokens: 1600 },
+          },
+        },
+      ]),
+    );
+    const result = fromThisSession({
+      prompt: "/anatomy explain how a token bucket works, interactive",
+      env: { CODEX_THREAD_ID: id, CODEX_HOME: root },
+    });
+    assert.equal(result.tokens, 1500 + 1030 + 1030 + 1600);
+    assert.equal(result.minutes, 3 + 10);
+    assert.equal(result.from, at(5));
+    assert.equal(result.to, at(80));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("no session, no numbers", () => {
   assert.equal(fromThisSession({ env: {} }), null);
   assert.equal(measure([]), null);

@@ -28,7 +28,7 @@ function usage(message) {
 
 The figure must be plain HTML: a build script that writes standalone pages next to itself, in any theme.
 Only the source is copied, to figures/<author>/<id>/: the gallery's CI builds the pages and the poster.
-In Claude Code and Antigravity, the time to make and the tokens spent are read from this session's own log (from the request that
+In Claude Code, Codex and Antigravity, the time to make and the tokens spent are read from this session's own log (from the request that
 made the figure up to the request to publish it, with idle gaps over 10 minutes left out); --minutes and --tokens
 override them, and --no-session leaves them out. Other agents pass them if they know them.
 Without --submit nothing is pushed: the command prints the git and gh commands to run when you are ready.
